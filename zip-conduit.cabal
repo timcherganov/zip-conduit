@@ -1,0 +1,31 @@
+Name:                zip-conduit
+Version:             0.1
+-- Synopsis:
+-- Description:
+License:             BSD3
+License-file:        LICENSE
+Author:              Tim
+Maintainer:          tymmym@gmail.com
+Category:            Codec, Conduit
+Build-type:          Simple
+Cabal-version:       >=1.6
+
+Library
+  Hs-source-dirs:    src
+
+  Build-depends:
+      base           >= 4.3 && < 5
+    , bytestring     == 0.9.*
+    , cereal         == 0.3.*
+    , conduit        == 0.4.*
+    , mtl
+    , utf8-string    == 0.3.*
+    , zlib-conduit   == 0.4.*
+
+
+  Exposed-modules:
+      Codec.Archive.Zip
+
+  Other-modules:
+      Codec.Archive.Zip.Internal
+      Codec.Archive.Zip.Util
