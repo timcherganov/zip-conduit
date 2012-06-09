@@ -5,10 +5,12 @@ import           Control.Applicative hiding (many)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import           Data.Serialize hiding (get)
+import           Data.Time
+import           Data.Word (Word16, Word32)
 import           System.IO hiding (readFile)
 
 import           Control.Monad.Error
-import           Data.ByteString.UTF8 (toString)
+import           Data.ByteString.UTF8 (fromString, toString)
 
 import           Codec.Archive.Zip.Util
 
@@ -16,7 +18,7 @@ import           Codec.Archive.Zip.Util
 calculateFileDataOffset :: Handle -> FileHeader -> IO Integer
 calculateFileDataOffset h fh = do
     lfhLength <- readLocalFileHeaderLength h fh
-    return . fromIntegral $ fhRelativeOffset fh + lfhLength
+    return $ (fromIntegral $ fhRelativeOffset fh) + lfhLength
 
 
 ------------------------------------------------------------------------------
@@ -38,26 +40,53 @@ calculateFileDataOffset h fh = do
 -- extra field (variable size)
 
 localFileHeaderConstantLength :: Int
-localFileHeaderConstantLength = 30
+localFileHeaderConstantLength = 4 + 2 + 2 + 2 + 2 + 2 + 4 + 4 + 4 + 2 + 2
 
 
-readLocalFileHeaderLength :: Handle -> FileHeader -> IO Int
+readLocalFileHeaderLength :: Handle -> FileHeader -> IO Integer
 readLocalFileHeaderLength h header = do
     runGet' getLocalFileHeaderLength <$> hGetLocalFileHeader h header
 
 
 -- Gets length of the local file header, i.e. sum of lengths of its
 -- constant and variable parts.
-getLocalFileHeaderLength :: Get Int
+getLocalFileHeaderLength :: Get Integer
 getLocalFileHeaderLength = do
     signature 0x04034b50
     skip $ 2 + 2 + 2 + 2 + 2 + 4 + 4 + 4
     fileNameLength    <- fromIntegral <$> getWord16le
     extraFieldLength  <- fromIntegral <$> getWord16le
 
-    return $ localFileHeaderConstantLength
+    return $ (fromIntegral localFileHeaderConstantLength)
            + fileNameLength
            + extraFieldLength
+
+
+writeLocalFileHeader :: Handle -> FileHeader -> IO ()
+writeLocalFileHeader h fh =
+    B.hPut h . runPut $ putLocalFileHeader fh
+
+
+putLocalFileHeader :: FileHeader -> Put
+putLocalFileHeader fh = do
+    putWord32le 0x04034b50
+    putWord16le 20  -- version needed to extract (>= 2.0)
+    putWord16le $ fhBitFlag fh
+    putWord16le compressionMethod
+    putWord16le $ msDOSTime modTime
+    putWord16le $ msDOSDate modTime
+    putWord32le $ fhCRC32 fh
+    putWord32le $ fhCompressedSize fh
+    putWord32le $ fhUncompressedSize fh
+    putWord16le . fromIntegral . B.length . fromString $ fhFileName fh
+    putWord16le . fromIntegral . B.length $ fhExtraField fh
+    putByteString . fromString $ fhFileName fh
+    putByteString $ fhExtraField fh
+  where
+    modTime = utcTimeToMSDOSDateTime $ fhLastModified fh
+    compressionMethod = case fhCompressionMethod fh of
+                          NoCompression -> 0
+                          Deflate       -> 8
 
 
 -- Gets constant part of the local file header.
@@ -69,34 +98,69 @@ hGetLocalFileHeader h fh = do
     offset = fromIntegral $ fhRelativeOffset fh
 
 
+localFileHeaderLength :: FileHeader -> Word32
+localFileHeaderLength fh =
+  fromIntegral $ 4 + 2 + 2 + 2 + 2 + 2 + 4 + 4 + 4 + 2 + 2
+               + length (fhFileName fh) + B.length (fhExtraField fh)
+
+
+------------------------------------------------------------------------------
+-- Data descriptor
+--
+-- crc-32                          4 bytes
+-- compressed size                 4 bytes
+-- uncompressed size               4 bytes
+data DataDescriptor = DataDescriptor
+    { ddCRC32            :: Word32
+    , ddCompressedSize   :: Word32
+    , ddUncompressedSize :: Word32
+    } deriving (Show)
+
+
+writeDataDescriptor :: Handle -> DataDescriptor -> IO ()
+writeDataDescriptor h dd =
+    B.hPut h . runPut $ putDataDescriptor dd
+
+
+putDataDescriptor :: DataDescriptor -> Put
+putDataDescriptor dd = do
+--    putWord32le 0x08074b50
+    putWord32le $ ddCRC32 dd
+    putWord32le $ ddCompressedSize dd
+    putWord32le $ ddUncompressedSize dd
+
+
 ------------------------------------------------------------------------------
 -- Central directory structure:
 --
 -- [file header 1]
--- .
--- .
--- .
+-- ...
 -- [file header n]
--- [digital signature]
 
 data CentralDirectory = CentralDirectory
     { cdFileHeaders      :: [FileHeader]
-    , cdDigitalSignature :: Maybe ByteString
     } deriving (Show)
 
 
 readCentralDirectory :: Handle -> End -> IO CentralDirectory
-readCentralDirectory h e = do
+readCentralDirectory h e =
     runGet' getCentralDirectory <$> hGetCentralDirectory h e
+
+
+writeCentralDirectory :: Handle -> CentralDirectory -> IO ()
+writeCentralDirectory h cd =
+    B.hPut h . runPut $ putCentralDirectory cd
+
+
+putCentralDirectory :: CentralDirectory -> Put
+putCentralDirectory cd = do
+    mapM_ putFileHeader $ cdFileHeaders cd
 
 
 getCentralDirectory :: Get CentralDirectory
 getCentralDirectory = do
     headers <- many . maybeEmpty $ getFileHeader
-    return $ CentralDirectory
-               { cdFileHeaders      = headers
-               , cdDigitalSignature = Nothing
-               }
+    return $ CentralDirectory { cdFileHeaders = headers }
 
 
 hGetCentralDirectory :: Handle -> End -> IO ByteString
@@ -134,10 +198,24 @@ hGetCentralDirectory h e = do
 -- file comment (variable size)
 
 data FileHeader = FileHeader
-    { fhCompressedSize   :: Int
-    , fhRelativeOffset   :: Int
-    , fhFileName         :: FilePath
+    { fhBitFlag                :: Word16
+    , fhCompressionMethod      :: CompressionMethod
+    , fhLastModified           :: UTCTime
+    , fhCRC32                  :: Word32
+    , fhCompressedSize         :: Word32
+    , fhUncompressedSize       :: Word32
+    , fhInternalFileAttributes :: Word16
+    , fhExternalFileAttributes :: Word32
+    , fhRelativeOffset         :: Word32
+    , fhFileName               :: FilePath
+    , fhExtraField             :: ByteString
+    , fhFileComment            :: ByteString
     } deriving (Show)
+
+
+data CompressionMethod = NoCompression
+                       | Deflate
+                         deriving (Show)
 
 
 getFileHeader :: Get FileHeader
@@ -147,21 +225,83 @@ getFileHeader = do
     versionNeededToExtract <- getWord16le
     unless (versionNeededToExtract <= 20) $
         fail "This archive requires zip >= 2.0 to extract."
-    skip $ 2 + 2 + 2 + 2 + 4
-    compressedSize    <- fromIntegral <$> getWord32le
-    skip 4
-    fileNameLength    <- fromIntegral <$> getWord16le
-    extraFieldLength  <- fromIntegral <$> getWord16le
-    fileCommentLength <- fromIntegral <$> getWord16le
-    skip $ 2 + 2 + 4
-    relativeOffset    <- fromIntegral <$> getWord32le
-    fileName          <- getByteString fileNameLength
-    skip $ extraFieldLength + fileCommentLength
+    bitFlag                <- getWord16le
+    rawCompressionMethod   <- getWord16le
+    compessionMethod       <- case rawCompressionMethod of
+                                0 -> return NoCompression
+                                8 -> return Deflate
+                                _ -> fail $ "Unknown compression method "
+                                          ++ show rawCompressionMethod
+    lastModFileTime        <- getWord16le
+    lastModFileDate        <- getWord16le
+    crc32                  <- getWord32le
+    compressedSize         <- fromIntegral <$> getWord32le
+    uncompressedSize       <- getWord32le
+    fileNameLength         <- fromIntegral <$> getWord16le
+    extraFieldLength       <- fromIntegral <$> getWord16le
+    fileCommentLength      <- fromIntegral <$> getWord16le
+    skip 2
+    internalFileAttributes <- getWord16le
+    externalFileAttributes <- getWord32le
+    relativeOffset         <- fromIntegral <$> getWord32le
+    fileName               <- getByteString fileNameLength
+    extraField             <- getByteString extraFieldLength
+    fileComment            <- getByteString fileCommentLength
     return $ FileHeader
-               { fhCompressedSize   = compressedSize
-               , fhRelativeOffset   = relativeOffset
-               , fhFileName         = toString fileName
+               { fhBitFlag                = bitFlag
+               , fhCompressionMethod      = compessionMethod
+               , fhLastModified           = toUTC lastModFileDate lastModFileTime
+               , fhCRC32                  = crc32
+               , fhCompressedSize         = compressedSize
+               , fhUncompressedSize       = uncompressedSize
+               , fhInternalFileAttributes = internalFileAttributes
+               , fhExternalFileAttributes = externalFileAttributes
+               , fhRelativeOffset         = relativeOffset
+               , fhFileName               = toString fileName
+               , fhExtraField             = extraField
+               , fhFileComment            = fileComment
                }
+  where
+    toUTC date time =
+        msDOSDateTimeToUTCTime $ MSDOSDateTime { msDOSDate = date
+                                               , msDOSTime = time
+                                               }
+
+
+putFileHeader :: FileHeader -> Put
+putFileHeader fh = do
+    putWord32le 0x02014b50
+    putWord16le 0   -- version made by
+    putWord16le 20  -- version needed to extract (>= 2.0)
+    putWord16le $ fhBitFlag fh
+    putWord16le compressionMethod
+    putWord16le $ msDOSTime modTime
+    putWord16le $ msDOSDate modTime
+    putWord32le $ fhCRC32 fh
+    putWord32le $ fhCompressedSize fh
+    putWord32le $ fhUncompressedSize fh
+    putWord16le . fromIntegral . B.length . fromString $ fhFileName fh
+    putWord16le . fromIntegral . B.length $ fhExtraField fh
+    putWord16le . fromIntegral . B.length $ fhFileComment fh
+    putWord16le 0  -- disk number start
+    putWord16le $ fhInternalFileAttributes fh
+    putWord32le $ fhExternalFileAttributes fh
+    putWord32le $ fhRelativeOffset fh
+    putByteString . fromString $ fhFileName fh
+    putByteString $ fhExtraField fh
+    putByteString $ fhFileComment fh
+  where
+    modTime = utcTimeToMSDOSDateTime $ fhLastModified fh
+    compressionMethod = case fhCompressionMethod fh of
+                          NoCompression -> 0
+                          Deflate       -> 8
+
+
+fileHeaderLength :: FileHeader -> Word32
+fileHeaderLength fh =
+  fromIntegral $ 4 + 2 + 2 + 2 + 2 + 2 + 2 + 4 + 4 + 4 + 2 + 2 + 2 + 2 + 2 + 4 + 4
+               + length (fhFileName fh) + B.length (fhExtraField fh)
+               + B.length (fhFileComment fh)
 
 
 ------------------------------------------------------------------------------
@@ -227,9 +367,24 @@ hGetEnd h = do
         B.hGet h $ fromIntegral (size - offset)
 
     next = do
-        pos <- hTell h
-        if pos < 1000
-          then return B.empty
-          else do
-              hSeek h RelativeSeek (-5)
-              loop
+        hSeek h RelativeSeek (-5)
+        loop
+
+
+writeEnd :: Handle -> Int -> Word32 -> Int -> IO ()
+writeEnd h number size offset =
+     B.hPut h . runPut $ putEnd number size offset
+
+
+putEnd :: Int -> Word32 -> Int -> Put
+putEnd number size offset = do
+    putWord32le 0x06054b50
+    putWord16le 0 -- disk number
+    putWord16le 0 -- disk number of central directory
+    putWord16le $ fromIntegral $ number -- number of entries this disk
+    putWord16le $ fromIntegral $ number -- number of entries
+    putWord32le size   -- size of central directory
+    putWord32le $ fromIntegral offset   -- offset of central dir
+    -- TODO: put comment
+    putWord16le 0
+    putByteString B.empty
