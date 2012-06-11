@@ -5,13 +5,13 @@ module Main where
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
+import           Data.Time
 import           System.Directory
 import           System.FilePath
 import           System.IO
 
 import           Data.Conduit
 import qualified Data.Conduit.List as CL
-import           Data.Time
 import           System.IO.Temp
 import           Test.Framework
 import           Test.Framework.Providers.HUnit
@@ -47,11 +47,11 @@ assertConduit =
   where
     archiveName = "test.zip"
     fileName    = "test.txt"
-    content     = "some test text really long texttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+    content     = "some test text really long"
 
 
 assertFiles :: Assertion
-assertFiles = do
+assertFiles =
     withSystemTempDirectory "zip-conduit" $ \dir -> do
         let ar = emptyArchive $ dir </> archiveName
 
