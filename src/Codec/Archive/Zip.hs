@@ -124,7 +124,6 @@ addFiles ar fs = do
 extractFiles :: Archive -> [FilePath] -> FilePath -> IO ()
 extractFiles ar fs dir = do
     forM_ fs $ \fileName -> do
-        print $ "\n" ++ fileName
         createDirectoryIfMissing True $ dir </> takeDirectory fileName
         runResourceT $ sourceFile ar fileName $$ CB.sinkFile (dir </> fileName)
 

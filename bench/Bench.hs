@@ -1,7 +1,5 @@
 {-# LANGUAGE PackageImports #-}
 
--- cabal-dev bench --benchmark-option="-o bench.html"
-
 module Main where
 
 import           Control.Monad
@@ -44,25 +42,34 @@ prepareBench :: FilePath     -- ^ the path to the directory with files
              -> [FilePath]   -- ^ file names
              -> [Benchmark]
 prepareBench dir names =
-    [ bgroup "zip-conduit" $
-             map (\name -> bench name $ zipConduit dir name)
-                 names
-    , bgroup "zip-archive" $
-             map (\name -> bench name $ zipArchive dir name)
-                 names
-    , bgroup "libZip" $
-             map (\name -> bench name $ libZip dir name)
-                 names
+    [ bgroup "archive"
+            [ bgroup "zip-conduit" $ b zipConduit
+            , bgroup "zip-archive" $ b zipArchive
+            , bgroup "libZip"      $ b libZip
+            ]
+    , bgroup "unarchive"
+             [ bgroup "zip-conduit" $ b unZipConduit
+             , bgroup "zip-archive" $ b unZipArchive
+             -- , bgroup "libZip"      $ b unLibZip
+             ]
     ]
+  where
+    b f = map (\name -> bench name $ f dir name) names
 
 
--- | Creates source files for archiving. File name is the size of
--- this file in bytes.
+
+-- | Creates source files for archiving and archive with this
+-- file. File name is the size of this file in bytes.
 prepareFiles :: FilePath      -- ^ the path to the directory for files
              -> [Int]         -- ^ sizes of files to create
              -> Criterion ()
 prepareFiles dir sizes = liftIO $
-    forM_ sizes $ \s -> createFile (dir </> show s) s
+    forM_ sizes $ \s -> do
+        let path = dir </> show s
+            ar   = emptyArchive $ path <.> "zip"
+
+        createFile path s
+        addFiles ar [path]
 
 
 -- | Creates a file of specified length with random content.
@@ -86,18 +93,38 @@ zipConduit dir name =
 
 zipArchive :: FilePath -> FilePath -> IO ()
 zipArchive dir name =
-    withTempDirectory dir "zip-conduit" $ \tmpDir -> do
-        ar' <- A.addFilesToArchive [] ar [dir </> name]
+    withTempDirectory dir "zip-archive" $ \tmpDir -> do
+        ar' <- A.addFilesToArchive [] A.emptyArchive [dir </> name]
         withFile (tmpDir </> name <.> "zip") WriteMode $ \h ->
             B.hPut h $ A.fromArchive ar'
-  where
-    ar = A.emptyArchive
 
 
 libZip :: FilePath -> FilePath -> IO ()
 libZip dir name =
-    withTempDirectory dir "zip-conduit" $ \tmpDir -> do
+    withTempDirectory dir "libZip" $ \tmpDir ->
         L.withArchive [L.CreateFlag] (tmpDir </> name <.> "zip") $ do
            zs <- L.sourceFile (dir </> name) 0 0
            L.addFile (dir </> name) zs
-        return ()
+           return ()
+
+
+------------------------------------------------------------------------------
+-- Exctract files from archive with three different packages.
+
+unZipConduit :: FilePath -> FilePath -> IO ()
+unZipConduit dir name = do
+    ar <- readArchive $ dir </> name <.> "zip"
+    extractFiles ar (fileNames ar) $ dir -- </> "zip-conduit"
+
+
+unZipArchive :: FilePath -> FilePath -> IO ()
+unZipArchive dir name = do
+    bytes <- B.readFile (dir </> name <.> "zip")
+    A.extractFilesFromArchive [] $ A.toArchive bytes
+
+
+unLibZip :: FilePath -> FilePath -> IO ()
+unLibZip dir name = do
+    bytes <- L.withArchive [] (dir </> name <.> "zip") $ L.fileContentsIx [] 0
+    withFile (dir </> name) WriteMode $ \h ->
+        hPutStr h bytes

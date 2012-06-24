@@ -47,33 +47,31 @@ assertConduit =
   where
     archiveName = "test.zip"
     fileName    = "test.txt"
-    content     = "some test text really long"
+    content     = "some not really long test text"
 
 
 assertFiles :: Assertion
 assertFiles =
     withSystemTempDirectory "zip-conduit" $ \dir -> do
-        let ar = emptyArchive $ dir </> archiveName
-
+        -- create files
         filePaths <- putFiles dir filesInfo
 
+        -- archive and unarchive
+        let ar = emptyArchive $ dir </> archiveName
         ar' <- addFiles ar filePaths
-        print ar'
-        ar'' <- readArchive $ dir </> archiveName
-        print ar''
-
-
         extractFiles ar' (fileNames ar') dir
 
+        -- read unarchived files
         result <- getFiles dir
 
+        -- compare
         assertEqual "" filesInfo result
   where
     archiveName  = "test.zip"
     filesInfo = [ ("test1.txt", "some test text")
-               , ("test2.txt", "some another test text")
-               , ("test3.txt", "one more time")
-               ]
+                , ("test2.txt", "some another test text")
+                , ("test3.txt", "one more")
+                ]
 
     putFiles :: FilePath -> [(FilePath, ByteString)] -> IO [FilePath]
     putFiles dir fileInfo =
@@ -108,38 +106,3 @@ unarchive :: FilePath -> FilePath -> IO ByteString
 unarchive archivePath fileName = do
     ar <- readArchive archivePath
     runResourceT $ sourceFile ar fileName $$ CL.fold B.append ""
-
-
-------------------------------------------------------------------------------
--- instance Arbitrary Archive where
---     arbitrary =
---         return $ Archive
---                    { archiveFilePath               = arbitrary
---                    , archiveFileHeaders            = arbitrary
---                    , archiveCentralDirectoryOffset = arbitrary
---                    , archiveComment                = arbitrary
---                    }
-
--- instance Arbitrary FileHeader where
---     arbitrary =
---         return $ FileHeader
---                    {
-
---prop_FileNames = 
-
--- t = quickCheck (prop_idempotent :: [Int] -> Bool)
--- t' = verboseCheck (prop_idempotent :: [Int] -> Bool)
-
--- prop_idempotent xs = qsort (qsort xs) == qsort xs
-
--- prop_minimum :: Ord a => [a] -> Property
--- prop_minimum xs = not (null xs) ==> head (qsort xs) == minimum xs
-
-
--- qsort :: Ord a => [a] -> [a]
--- qsort [] = []
--- qsort (x:xs) =
---     qsort lhs ++ [x] ++ qsort rhs
---   where
---     lhs = filter (< x) xs
---     rhs = filter (>= x) xs
