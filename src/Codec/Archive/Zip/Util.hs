@@ -15,6 +15,12 @@ import           Data.Digest.CRC32
 import           Data.Serialize.Get
 
 
+ifM :: Monad m => m Bool -> m a -> m a -> m a
+ifM cond conseq altern = do
+    c <- cond
+    if c then conseq else altern
+
+
 many :: Monad m => m (Maybe a) -> m [a]
 many p = do
   r <- p
@@ -103,10 +109,7 @@ clockTimeToUTCTime (TOD seconds picoseconds) =
 -- Conduit utils.
 crc32Sink :: Monad m => Sink ByteString m Word32
 crc32Sink =
-    sinkState 0 push close
-  where
-    push state input = return . StateProcessing $ crc32Update state input
-    close state      = return state
+    CL.fold (\state input -> crc32Update state input) 0
 
 
 sizeSink :: Monad m => Sink ByteString m Int

@@ -14,6 +14,7 @@ main = do
     path:_ <- getArgs
 
     withSystemTempDirectory "zip-conduit" $ \dir -> do
-        let ar = emptyArchive $ dir </> "some.zip"
-        ar' <- addFiles ar [path]
-        extractFiles ar' (fileNames ar') dir
+        withArchive (dir </> "some.zip") $ do
+            addFiles [path]
+            names <- fileNames
+            extractFiles names dir

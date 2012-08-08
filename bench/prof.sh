@@ -14,5 +14,5 @@ else
 
     hp2ps -c Prof.hp
 
-    rm -f Prof.aux Prof.hi Prof.hp Prof.o Prof.tix
+    rm -f Prof.aux Prof.hi Prof.o Prof.tix
 fi

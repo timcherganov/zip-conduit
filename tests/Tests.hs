@@ -2,22 +2,23 @@
 
 module Main where
 
+import           Prelude hiding (zip)
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
+import           Data.List ((\\))
 import           Data.Time
 import           System.Directory
 import           System.FilePath
 import           System.IO
 
+import           Control.Monad.State
 import           Data.Conduit
 import qualified Data.Conduit.List as CL
 import           System.IO.Temp
 import           Test.Framework
 import           Test.Framework.Providers.HUnit
---import           Test.Framework.Providers.QuickCheck2
 import           Test.HUnit hiding (Test, path)
---import           Test.QuickCheck
 
 import           Codec.Archive.Zip
 
@@ -57,15 +58,16 @@ assertFiles =
         filePaths <- putFiles dir filesInfo
 
         -- archive and unarchive
-        let ar = emptyArchive $ dir </> archiveName
-        ar' <- addFiles ar filePaths
-        extractFiles ar' (fileNames ar') dir
+        withArchive (dir </> archiveName) $ do
+            addFiles filePaths
+            names <- fileNames
+            extractFiles names dir
 
         -- read unarchived files
         result <- getFiles dir
 
         -- compare
-        assertEqual "" filesInfo result
+        assertEqual "" [] (filesInfo \\ result)
   where
     archiveName  = "test.zip"
     filesInfo = [ ("test1.txt", "some test text")
@@ -93,16 +95,17 @@ assertFiles =
 
 -- | Creates new archive at 'archivePath' and puts there file with
 -- 'content'.
-archive :: FilePath -> FilePath -> ByteString -> IO Archive
+archive :: FilePath -> FilePath -> ByteString -> IO ()
 archive archivePath fileName content = do
-    time <- getCurrentTime
-    runResourceT $ CL.sourceList [content] $$ sinkFile ar fileName time
-  where
-    ar = emptyArchive archivePath
+    time <- liftIO getCurrentTime
+    withArchive archivePath $ do
+        sink <- getSink fileName time
+        runResourceT $ CL.sourceList [content] $$ sink
 
 
 -- | Gets content from 'fileName' in archive at 'arcihvePath'.
 unarchive :: FilePath -> FilePath -> IO ByteString
 unarchive archivePath fileName = do
-    ar <- readArchive archivePath
-    runResourceT $ sourceFile ar fileName $$ CL.fold B.append ""
+    withArchive archivePath $ do
+        source <- getSource fileName
+        runResourceT $ source $$ CL.fold B.append ""

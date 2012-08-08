@@ -43,10 +43,10 @@ prepareBench :: FilePath     -- ^ the path to the directory with files
              -> [Benchmark]
 prepareBench dir names =
     [ bgroup "archive"
-            [ bgroup "zip-conduit" $ b zipConduit
-            , bgroup "zip-archive" $ b zipArchive
-            , bgroup "libZip"      $ b libZip
-            ]
+             [ bgroup "zip-conduit" $ b zipConduit
+             , bgroup "zip-archive" $ b zipArchive
+             , bgroup "libZip"      $ b libZip
+             ]
     , bgroup "unarchive"
              [ bgroup "zip-conduit" $ b unZipConduit
              , bgroup "zip-archive" $ b unZipArchive
@@ -58,18 +58,17 @@ prepareBench dir names =
 
 
 
--- | Creates source files for archiving and archive with this
--- file. File name is the size of this file in bytes.
+-- | Creates source files for archiving and archives with those
+-- files. File name is the size of this file in bytes.
 prepareFiles :: FilePath      -- ^ the path to the directory for files
              -> [Int]         -- ^ sizes of files to create
              -> Criterion ()
 prepareFiles dir sizes = liftIO $
     forM_ sizes $ \s -> do
         let path = dir </> show s
-            ar   = emptyArchive $ path <.> "zip"
 
         createFile path s
-        addFiles ar [path]
+        withArchive (path <.> "zip") $ addFiles [path]
 
 
 -- | Creates a file of specified length with random content.
@@ -85,10 +84,8 @@ createFile path size =
 
 zipConduit :: FilePath -> FilePath -> IO ()
 zipConduit dir name =
-    withTempDirectory dir "zip-conduit" $ \tmpDir -> do
-        let ar = emptyArchive $ tmpDir </> name <.> "zip"
-        addFiles ar [dir </> name]
-        return ()
+    withTempDirectory dir "zip-conduit" $ \tmpDir ->
+        withArchive (tmpDir </> name <.> "zip") $ addFiles [dir </> name]
 
 
 zipArchive :: FilePath -> FilePath -> IO ()
@@ -113,8 +110,9 @@ libZip dir name =
 
 unZipConduit :: FilePath -> FilePath -> IO ()
 unZipConduit dir name = do
-    ar <- readArchive $ dir </> name <.> "zip"
-    extractFiles ar (fileNames ar) $ dir -- </> "zip-conduit"
+    withArchive (dir </> name <.> "zip") $ do
+        names <- fileNames
+        extractFiles names $ dir -- </> "zip-conduit"
 
 
 unZipArchive :: FilePath -> FilePath -> IO ()
