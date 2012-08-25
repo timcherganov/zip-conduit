@@ -111,7 +111,7 @@ libZip dir name =
 unZipConduit :: FilePath -> FilePath -> IO ()
 unZipConduit dir name = do
     withArchive (dir </> name <.> "zip") $ do
-        names <- fileNames
+        names <- entryNames
         extractFiles names $ dir -- </> "zip-conduit"
 
 

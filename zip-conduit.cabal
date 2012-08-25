@@ -1,5 +1,5 @@
 Name:                zip-conduit
-Version:             0.1
+Version:             0.2
 Synopsis:            Working with zip archives via conduits.
 Description:         Working with zip archives via conduits.
 License:             BSD3

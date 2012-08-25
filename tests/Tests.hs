@@ -30,25 +30,30 @@ main = defaultMain tests
 tests :: [Test]
 tests =
     [ testGroup "cases"
-                [ testCase "conduit" assertConduit
-                , testCase "files  " assertFiles
+                [ testCase "conduit    " (assertConduit sinkEntry)
+                , testCase "conduit-un " (assertConduit sinkEntryUncompressed)
+                , testCase "conduit-dep" assertConduitDeprecated
+                , testCase "files      " assertFiles
                 ]
     ]
 
 
-assertConduit :: Assertion
-assertConduit =
+assertConduit :: Monad m
+              => (FilePath -> Source m ByteString -> Archive b) -> IO ()
+assertConduit s =
     withSystemTempDirectory "zip-conduit" $ \dir -> do
         let archivePath = dir </> archiveName
 
-        archive archivePath fileName content
-        result <- unarchive archivePath fileName
+        archive s archivePath entriesInfo
+        result <- unarchive archivePath entriesInfo
 
-        assertEqual "" content result
+        assertEqual "" [] (entriesInfo \\ result)
   where
     archiveName = "test.zip"
-    fileName    = "test.txt"
-    content     = "some not really long test text"
+    entriesInfo = [ ("test1.txt", "some test text")
+                  , ("test2.txt", "some another test text")
+                  , ("test3.txt", "one more")
+                  ]
 
 
 assertFiles :: Assertion
@@ -60,7 +65,7 @@ assertFiles =
         -- archive and unarchive
         withArchive (dir </> archiveName) $ do
             addFiles filePaths
-            names <- fileNames
+            names <- entryNames
             extractFiles names dir
 
         -- read unarchived files
@@ -93,10 +98,44 @@ assertFiles =
             return (takeFileName file, content)
 
 
+archive :: Monad m
+        => (FilePath -> Source m ByteString -> Archive b)
+        -> FilePath -> [(FilePath, ByteString)] -> IO ()
+archive s archivePath entriesInfo =
+    withArchive archivePath $
+        forM_ entriesInfo $ \(entryName, content) ->
+            s entryName $ CL.sourceList [content]
+
+
+unarchive :: FilePath -> [(FilePath, ByteString)] -> IO [(FilePath, ByteString)]
+unarchive archivePath entriesInfo =
+    withArchive archivePath $
+        forM entriesInfo $ \(entryName, _) -> do
+            content <- sourceEntry entryName $ CL.fold B.append ""
+            return (entryName, content)
+
+
+------------------------------------------------------------------------------
+-- Tests for deprecated functions
+assertConduitDeprecated :: Assertion
+assertConduitDeprecated =
+    withSystemTempDirectory "zip-conduit" $ \dir -> do
+        let archivePath = dir </> archiveName
+
+        archiveD archivePath fileName content
+        result <- unarchiveD archivePath fileName
+
+        assertEqual "" content result
+  where
+    archiveName = "test.zip"
+    fileName    = "test.txt"
+    content     = "some not really long test text"
+
+
 -- | Creates new archive at 'archivePath' and puts there file with
 -- 'content'.
-archive :: FilePath -> FilePath -> ByteString -> IO ()
-archive archivePath fileName content = do
+archiveD :: FilePath -> FilePath -> ByteString -> IO ()
+archiveD archivePath fileName content = do
     time <- liftIO getCurrentTime
     withArchive archivePath $ do
         sink <- getSink fileName time
@@ -104,8 +143,8 @@ archive archivePath fileName content = do
 
 
 -- | Gets content from 'fileName' in archive at 'arcihvePath'.
-unarchive :: FilePath -> FilePath -> IO ByteString
-unarchive archivePath fileName = do
+unarchiveD :: FilePath -> FilePath -> IO ByteString
+unarchiveD archivePath fileName =
     withArchive archivePath $ do
         source <- getSource fileName
         runResourceT $ source $$ CL.fold B.append ""

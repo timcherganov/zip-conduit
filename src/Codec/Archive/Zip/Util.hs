@@ -21,11 +21,11 @@ ifM cond conseq altern = do
     if c then conseq else altern
 
 
-many :: Monad m => m (Maybe a) -> m [a]
+many :: (Monad m, Functor m) => m (Maybe a) -> m [a]
 many p = do
   r <- p
   case r of
-       Just x  -> many p >>= return . (x:)
+       Just x  -> (x:) <$> many p
        Nothing -> return []
 
 
@@ -73,7 +73,7 @@ msDOSDateTimeToUTCTime dosDateTime =
 
     day     = fromIntegral $ dosDate .&. 0x1F
     month   = fromIntegral $ (shiftR dosDate 5) .&. 0xF
-    year    = 1980 + (fromIntegral $ shiftR dosDate 9)
+    year    = 1980 + fromIntegral (shiftR dosDate 9)
 
     dosDate = msDOSDate dosDateTime
     dosTime = msDOSTime dosDateTime
@@ -88,7 +88,7 @@ utcTimeToMSDOSDateTime utcTime =
     dosTime = fromIntegral $ seconds + shiftL minutes 5 + shiftL hours 11
     dosDate = fromIntegral $ day + shiftL month 5 + shiftL year 9
 
-    seconds = (fromEnum $ todSec tod) `div` 2
+    seconds = fromEnum (todSec tod) `div` 2
     minutes = todMin tod
     hours   = todHour tod
     tod     = timeToTimeOfDay $ utctDayTime utcTime
@@ -100,8 +100,8 @@ utcTimeToMSDOSDateTime utcTime =
 clockTimeToUTCTime :: ClockTime -> UTCTime
 clockTimeToUTCTime (TOD seconds picoseconds) =
     let utcTime = posixSecondsToUTCTime $ fromIntegral seconds in
-    utcTime { utctDayTime = (utctDayTime utcTime) +
-                            picosecondsToDiffTime picoseconds
+    utcTime { utctDayTime = utctDayTime utcTime
+                          + picosecondsToDiffTime picoseconds
             }
 
 
@@ -109,7 +109,7 @@ clockTimeToUTCTime (TOD seconds picoseconds) =
 -- Conduit utils.
 crc32Sink :: Monad m => Sink ByteString m Word32
 crc32Sink =
-    CL.fold (\state input -> crc32Update state input) 0
+    CL.fold crc32Update 0
 
 
 sizeSink :: Monad m => Sink ByteString m Int

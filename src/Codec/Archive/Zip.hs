@@ -1,38 +1,33 @@
-{- | Sink file to the archive:
+{- | Sink entries to the archive:
 
 @
-import           Data.Time (getCurrentTime)
-import           System.Environment (getArgs)
-import           System.FilePath (takeFileName)
-import           Data.Conduit
+\{\-\# LANGUAGE OverloadedStrings \#\-\}
+
 import qualified Data.Conduit.Binary as CB
 import           Codec.Archive.Zip
 
+
 main = do
-    filePath:_ <- getArgs
-    time <- getCurrentTime
     withArchive \"some.zip\" $ do
-        sink <- getSink (takeFileName filePath) time
-        runResourceT $ CB.sourceFile filePath $$ sink
+        sinkEntry \"first\"  $ CB.sourceLbs \"hello\"
+        sinkEntry \"second\" $ CB.sourceLbs \"world\"
 @
 
-Source first file from the archive:
+Source first entry from the archive:
 
 @
 import           System.Environment (getArgs)
-import           Data.Conduit
 import qualified Data.Conduit.Binary as CB
 import           Codec.Archive.Zip
 
 main = do
     archivePath:_ <- getArgs
     withArchive archivePath $ do
-        fileName:_ <- fileNames
-        source     <- getSource fileName
-        runResourceT $ source $$ CB.sinkFile fileName
+        name:_ <- entryNames
+        sourceEntry name $ CB.sinkFile name
 @
 
-List files in the zip archive:
+List entries in the archive:
 
 @
 import System.Environment (getArgs)
@@ -40,7 +35,7 @@ import Codec.Archive.Zip
 
 main = do
     archivePath:_ <- getArgs
-    names <- withArchive archivePath fileNames
+    names <- withArchive archivePath entryNames
     mapM_ putStrLn names
 @
 
@@ -60,7 +55,7 @@ main = do
     withArchive \"some.zip\" $ addFiles filePaths
 @
 
-Extract all files from the archive:
+Extract files from the archive:
 
 @
 import System.Environment (getArgs)
@@ -69,7 +64,7 @@ import Codec.Archive.Zip
 main = do
     dirPath:_ <- getArgs
     withArchive \"some.zip\" $ do
-        names <- fileNames
+        names <- entryNames
         extractFiles names dirPath
 @
 
@@ -83,15 +78,21 @@ module Codec.Archive.Zip
     -- * Operations
     , getComment
     , setComment
-    , fileNames
+    , entryNames
 
     -- * Conduit interface
-    , getSource
-    , getSink
+    , sourceEntry
+    , sinkEntry
+    , sinkEntryUncompressed
 
     -- * High level functions
-    , addFiles
     , extractFiles
+    , addFiles
+
+    -- * Deprecated
+    , fileNames
+    , getSource
+    , getSink
     ) where
 
 import           Prelude hiding (readFile, zip)
@@ -100,6 +101,7 @@ import           Control.Monad
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import           Data.List (find)
+import           Data.Maybe
 import           Data.Time
 import           Data.Word
 import           System.Directory
@@ -120,7 +122,7 @@ import           Codec.Archive.Zip.Util
 
 ------------------------------------------------------------------------------
 -- Archive monad
-type Archive a = StateT Zip IO a
+type Archive = StateT Zip IO
 
 
 data Zip = Zip
@@ -145,12 +147,12 @@ readZip f =
     withFile f ReadMode $ \h -> do
         e  <- readEnd h
         cd <- readCentralDirectory h e
-        return $ Zip { zipFilePath    = f
-                     , zipFileHeaders = cdFileHeaders cd
-                     , zipCentralDirectoryOffset =
+        return Zip { zipFilePath    = f
+                   , zipFileHeaders = cdFileHeaders cd
+                   , zipCentralDirectoryOffset =
                          endCentralDirectoryOffset e
-                     , zipComment     = endZipComment e
-                     }
+                   , zipComment     = endZipComment e
+                   }
 
 
 emptyZip :: FilePath -> Zip
@@ -163,8 +165,8 @@ emptyZip f = Zip { zipFilePath               = f
 
 ------------------------------------------------------------------------------
 -- Operations
-fileNames :: Archive [FilePath]
-fileNames = gets $ map fhFileName . zipFileHeaders
+entryNames :: Archive [FilePath]
+entryNames = gets $ map fhFileName . zipFileHeaders
 
 
 getComment :: Archive ByteString
@@ -177,17 +179,32 @@ setComment comment = modify $ \zip ->  zip { zipComment = comment }
 
 ------------------------------------------------------------------------------
 -- Conduit interface
-getSource :: MonadResource m => FilePath -> Archive (Source m ByteString)
-getSource f = gets $ \zip -> sourceFile zip f
+-- | Stream the contents of an archive entry to the specified sink.
+sourceEntry :: FilePath -> Sink ByteString (ResourceT Archive) a -> Archive a
+sourceEntry e sink = do
+    zip <- get
+    runResourceT $ sourceFile zip e $$ sink
+
+-- | Stream data from the specified source to an archive entry.
+sinkEntry :: FilePath -> Source (ResourceT Archive) ByteString -> Archive ()
+sinkEntry e source = do
+    zip  <- get
+    time <- liftIO getCurrentTime
+    zip' <- runResourceT $ source $$ sinkFile zip e Deflate time
+    put zip'
 
 
-getSink :: MonadResource m
-        => FilePath -> UTCTime -> Archive (Sink ByteString m ())
-getSink f time = gets $ \zip -> sinkFile zip f time
+-- | Stream data from the specified source to an uncompressed archive entry.
+sinkEntryUncompressed :: FilePath -> Source (ResourceT Archive) ByteString -> Archive ()
+sinkEntryUncompressed f source = do
+    zip  <- get
+    time <- liftIO getCurrentTime
+    zip' <- runResourceT $ source $$ sinkFile zip f NoCompression time
+    put zip'
 
 
 sourceFile :: MonadResource m => Zip -> FilePath -> Source m ByteString
-sourceFile zip f = do
+sourceFile zip f =
     source $= CB.isolate (fromIntegral $ fhCompressedSize fileHeader)
            $= decomp
   where
@@ -198,9 +215,8 @@ sourceFile zip f = do
         return h
 
     fileHeader =
-        maybe (error "No such file.")
-              id
-              $ find (\fh -> f == fhFileName fh) $ zipFileHeaders zip
+        fromMaybe (error "No such file.") $ find (\fh -> f == fhFileName fh)
+                                          $ zipFileHeaders zip
 
     decomp =
         case fhCompressionMethod fileHeader of
@@ -208,19 +224,20 @@ sourceFile zip f = do
           Deflate       -> decompress $ WindowBits (-15)
 
 
-sinkFile :: MonadResource m
-         => Zip -> FilePath -> UTCTime -> Sink ByteString m ()
-sinkFile zip f time = do
-    h  <- liftIO $ openFile (zipFilePath zip) WriteMode
-    fh <- liftIO $ appendLocalFileHeader h zip f time
-    dd <- sinkData h
+sinkFile :: MonadResource m => Zip -> FilePath -> CompressionMethod -> UTCTime
+                            -> Sink ByteString m Zip
+sinkFile zip f compression time = do
+    h  <- liftIO $ openFile (zipFilePath zip) ReadWriteMode  -- not WriteMode because if the file already exists, then it would be truncated to zero length
+    fh <- liftIO $ appendLocalFileHeader h zip f compression time
+    dd <- sinkData h compression
     liftIO $ do
-        writeDataDescriptor' h dd offset
+        writeDataDescriptorFields h dd offset
         let zip' = updateZip zip fh dd
         writeFinish h zip'
         hClose h
+        return zip'
   where
-    offset = fromIntegral $ zipCentralDirectoryOffset zip  -- FIXME: old offset!
+    offset = fromIntegral $ zipCentralDirectoryOffset zip
 
 
 ------------------------------------------------------------------------------
@@ -250,28 +267,29 @@ extractFiles fs dir = do
 addFile :: Handle -> Zip -> FilePath -> IO Zip
 addFile h zip f = do
     m  <- clockTimeToUTCTime <$> getModificationTime f
-    fh <- appendLocalFileHeader h zip (dropDrive f) m
-    dd <- runResourceT $ CB.sourceFile f $$ sinkData h
-    writeDataDescriptor' h dd offset
+    fh <- appendLocalFileHeader h zip (dropDrive f) Deflate m
+    dd <- runResourceT $ CB.sourceFile f $$ sinkData h Deflate
+    writeDataDescriptorFields h dd offset
     return $ updateZip zip fh dd
   where
-    offset = fromIntegral $ zipCentralDirectoryOffset zip  -- FIXME: old offset!
+    offset = fromIntegral $ zipCentralDirectoryOffset zip
 
 
-appendLocalFileHeader :: Handle -> Zip -> FilePath -> UTCTime -> IO FileHeader
-appendLocalFileHeader h zip f time = do
+appendLocalFileHeader :: Handle -> Zip -> FilePath -> CompressionMethod
+                      -> UTCTime -> IO FileHeader
+appendLocalFileHeader h zip f compression time = do
     hSeek h AbsoluteSeek offset
     writeLocalFileHeader h fh
     return fh
   where
     offset = fromIntegral $ zipCentralDirectoryOffset zip
-    fh     = mkFileHeader f time (fromIntegral offset)
+    fh     = mkFileHeader f compression time (fromIntegral offset)
 
 
-mkFileHeader :: FilePath -> UTCTime -> Word32 -> FileHeader
-mkFileHeader f lastModified relativeOffset =
-    FileHeader { fhBitFlag                = 2  -- max compression + data descriptor
-               , fhCompressionMethod      = Deflate
+mkFileHeader :: FilePath -> CompressionMethod -> UTCTime -> Word32 -> FileHeader
+mkFileHeader f compression lastModified relativeOffset =
+    FileHeader { fhBitFlag                = 2  -- max compression for deflate compression method
+               , fhCompressionMethod      = compression
                , fhLastModified           = lastModified
                , fhCRC32                  = 0
                , fhCompressedSize         = 0
@@ -285,12 +303,14 @@ mkFileHeader f lastModified relativeOffset =
                }
 
 
-sinkData :: MonadResource m => Handle -> Sink ByteString m DataDescriptor
-sinkData h = do
+sinkData :: MonadResource m
+         => Handle -> CompressionMethod -> Sink ByteString m DataDescriptor
+sinkData h compression = do
     ((uncompressedSize, crc32), compressedSize) <-
-        CU.zipSinks sizeCrc32Sink
-                    compressSink
-    return $ DataDescriptor
+        case compression of
+          NoCompression -> CU.zipSinks sizeCrc32Sink sizeDataSink
+          Deflate       -> CU.zipSinks sizeCrc32Sink compressSink
+    return DataDescriptor
                { ddCRC32            = crc32
                , ddCompressedSize   = fromIntegral compressedSize
                , ddUncompressedSize = fromIntegral uncompressedSize
@@ -306,8 +326,10 @@ sinkData h = do
     sizeDataSink  = fst <$> CU.zipSinks sizeSink (CB.sinkHandle h)
 
 
-writeDataDescriptor' :: Handle -> DataDescriptor -> Integer -> IO ()
-writeDataDescriptor' h dd offset = do
+-- Writes data descriptor fields (crc-32, compressed size and
+-- uncompressed size) in the middle of the local file header.
+writeDataDescriptorFields :: Handle -> DataDescriptor -> Integer -> IO ()
+writeDataDescriptorFields h dd offset = do
     old <- hTell h
     hSeek h AbsoluteSeek $ offset + 4 + 2 + 2 + 2 + 2 + 2
     writeDataDescriptor h dd
@@ -316,19 +338,37 @@ writeDataDescriptor' h dd offset = do
 
 updateZip :: Zip -> FileHeader -> DataDescriptor -> Zip
 updateZip zip fh dd =
-    zip { zipFileHeaders = (zipFileHeaders zip)
-                           ++ [ fh { fhCRC32            = ddCRC32 dd
-                                   , fhCompressedSize   = ddCompressedSize dd
-                                   , fhUncompressedSize = ddUncompressedSize dd
-                                   } ]
-       , zipCentralDirectoryOffset = (zipCentralDirectoryOffset zip) + (fromIntegral $ localFileHeaderLength fh + ddCompressedSize dd) -- the last is datadescriptor size
+    zip { zipFileHeaders = zipFileHeaders zip
+                        ++ [ fh { fhCRC32            = ddCRC32 dd
+                                , fhCompressedSize   = ddCompressedSize dd
+                                , fhUncompressedSize = ddUncompressedSize dd
+                                } ]
+       , zipCentralDirectoryOffset = zipCentralDirectoryOffset zip
+                                   + fromIntegral (localFileHeaderLength fh + ddCompressedSize dd)
        }
 
 
 writeFinish :: Handle -> Zip -> IO ()
 writeFinish h zip = do
-    writeCentralDirectory h $ CentralDirectory (zipFileHeaders zip)  -- FIXME: CentralDirectory?
+    writeCentralDirectory h $ CentralDirectory (zipFileHeaders zip)
     writeEnd h
-             (length $ zipFileHeaders zip)
+             (length $ zipFileHeaders zip)                      -- total number of entries in the central directory on this disk
              (sum $ map fileHeaderLength $ zipFileHeaders zip)
              (zipCentralDirectoryOffset zip)
+
+
+------------------------------------------------------------------------------
+-- Deprecated
+fileNames :: Archive [FilePath]
+fileNames = entryNames
+
+
+getSource :: MonadResource m => FilePath -> Archive (Source m ByteString)
+getSource f = gets $ \zip -> sourceFile zip f
+
+
+getSink :: MonadResource m
+        => FilePath -> UTCTime -> Archive (Sink ByteString m ())
+getSink f time = gets $ \zip -> do
+                            sinkFile zip f Deflate time
+                            return ()

@@ -18,7 +18,13 @@ import           Codec.Archive.Zip.Util
 calculateFileDataOffset :: Handle -> FileHeader -> IO Integer
 calculateFileDataOffset h fh = do
     lfhLength <- readLocalFileHeaderLength h fh
-    return $ (fromIntegral $ fhRelativeOffset fh) + lfhLength
+    return $ fromIntegral (fhRelativeOffset fh) + lfhLength
+
+
+------------------------------------------------------------------------------
+-- Overall zipfile format:
+--   [local file header + file data + data_descriptor] . . .
+--   [central directory] end of central directory record
 
 
 ------------------------------------------------------------------------------
@@ -44,7 +50,7 @@ localFileHeaderConstantLength = 4 + 2 + 2 + 2 + 2 + 2 + 4 + 4 + 4 + 2 + 2
 
 
 readLocalFileHeaderLength :: Handle -> FileHeader -> IO Integer
-readLocalFileHeaderLength h header = do
+readLocalFileHeaderLength h header =
     runGet' getLocalFileHeaderLength <$> hGetLocalFileHeader h header
 
 
@@ -57,7 +63,7 @@ getLocalFileHeaderLength = do
     fileNameLength    <- fromIntegral <$> getWord16le
     extraFieldLength  <- fromIntegral <$> getWord16le
 
-    return $ (fromIntegral localFileHeaderConstantLength)
+    return $ fromIntegral localFileHeaderConstantLength
            + fileNameLength
            + extraFieldLength
 
@@ -153,14 +159,14 @@ writeCentralDirectory h cd =
 
 
 putCentralDirectory :: CentralDirectory -> Put
-putCentralDirectory cd = do
+putCentralDirectory cd =
     mapM_ putFileHeader $ cdFileHeaders cd
 
 
 getCentralDirectory :: Get CentralDirectory
 getCentralDirectory = do
     headers <- many . maybeEmpty $ getFileHeader
-    return $ CentralDirectory { cdFileHeaders = headers }
+    return CentralDirectory { cdFileHeaders = headers }
 
 
 hGetCentralDirectory :: Handle -> End -> IO ByteString
@@ -247,7 +253,7 @@ getFileHeader = do
     fileName               <- getByteString fileNameLength
     extraField             <- getByteString extraFieldLength
     fileComment            <- getByteString fileCommentLength
-    return $ FileHeader
+    return FileHeader
                { fhBitFlag                = bitFlag
                , fhCompressionMethod      = compessionMethod
                , fhLastModified           = toUTC lastModFileDate lastModFileTime
@@ -263,9 +269,9 @@ getFileHeader = do
                }
   where
     toUTC date time =
-        msDOSDateTimeToUTCTime $ MSDOSDateTime { msDOSDate = date
-                                               , msDOSTime = time
-                                               }
+        msDOSDateTimeToUTCTime MSDOSDateTime { msDOSDate = date
+                                             , msDOSTime = time
+                                             }
 
 
 putFileHeader :: FileHeader -> Put
@@ -341,8 +347,7 @@ getEnd = do
    offset        <- fromIntegral <$> getWord32le
    commentLength <- fromIntegral <$> getWord16le
    comment       <- getByteString commentLength
-   return $ End
-              { endCentralDirectorySize   = size
+   return End { endCentralDirectorySize   = size
               , endCentralDirectoryOffset = offset
               , endZipComment             = comment
               }
@@ -379,12 +384,12 @@ writeEnd h number size offset =
 putEnd :: Int -> Word32 -> Int -> Put
 putEnd number size offset = do
     putWord32le 0x06054b50
-    putWord16le 0 -- disk number
-    putWord16le 0 -- disk number of central directory
-    putWord16le $ fromIntegral $ number -- number of entries this disk
-    putWord16le $ fromIntegral $ number -- number of entries
-    putWord32le size   -- size of central directory
-    putWord32le $ fromIntegral offset   -- offset of central dir
+    putWord16le 0                      -- disk number
+    putWord16le 0                      -- disk number of central directory
+    putWord16le $ fromIntegral number  -- number of entries this disk
+    putWord16le $ fromIntegral number  -- number of entries
+    putWord32le size                   -- size of central directory
+    putWord32le $ fromIntegral offset  -- offset of central dir
     -- TODO: put comment
     putWord16le 0
     putByteString B.empty
