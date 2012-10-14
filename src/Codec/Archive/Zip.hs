@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 {- | Sink entries to the archive:
 
 @
@@ -266,7 +268,11 @@ extractFiles fs dir = do
 -- | Appends file to the 'Zip'.
 addFile :: Handle -> Zip -> FilePath -> IO Zip
 addFile h zip f = do
+#ifdef DIRECTORY_1_1
     m  <- clockTimeToUTCTime <$> getModificationTime f
+#else
+    m <- getModificationTime f
+#endif
     fh <- appendLocalFileHeader h zip (dropDrive f) Deflate m
     dd <- runResourceT $ CB.sourceFile f $$ sinkData h Deflate
     writeDataDescriptorFields h dd offset
