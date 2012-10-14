@@ -12,17 +12,25 @@ Bug-reports:         https://github.com/tymmym/zip-conduit/issues
 Build-type:          Simple
 Cabal-version:       >=1.10
 
+flag directory11
+  Description:      Use version 1.1.x or earlier of the directory package.
+  Default:          False
 
 Library
   Hs-source-dirs:    src
 
+  if flag(directory11)
+    Build-depends:  directory < 1.2
+    cpp-options:    -D_DIRECTORY_1_1
+  else
+    Build-depends:  directory >= 1.2
+
   Build-depends:
       base           >= 4.3 && < 5
-    , bytestring     == 0.9.*
+    , bytestring     >= 0.9 && < 0.11
     , cereal         == 0.3.*
     , conduit        == 0.5.*
     , digest         == 0.0.*
-    , directory      == 1.1.*
     , filepath       == 1.3.*
     , mtl            == 2.1.*
     , old-time       >= 1.0 && < 1.2
@@ -47,14 +55,19 @@ Test-suite tests
   Hs-source-dirs:    tests
   Main-is:           Tests.hs
 
+  if flag(directory11)
+    Build-depends:  directory < 1.2
+    cpp-options:    -D_DIRECTORY_1_1
+  else
+    Build-depends:  directory >= 1.2
+
   Build-depends:
       base           >= 4.3 && < 5
-    , bytestring     == 0.9.*
+    , bytestring     >= 0.9 && < 0.11
     , conduit        == 0.5.*
-    , directory      == 1.1.*
     , filepath       == 1.3.*
     , HUnit          == 1.2.*
-    , hpc            == 0.5.*
+    , hpc            >= 0.5 && < 0.7
     , mtl            == 2.1.*
     , temporary      == 1.1.*
     , test-framework == 0.6.*
