@@ -1,17 +1,21 @@
 #!/bin/bash
 
-# Install with benchmarking, testing, code coverage and profiling options.
-cabal-dev install --reinstall --enable-benchmarks \
-                  --enable-tests --enable-library-coverage \
-                  --enable-library-profiling --enable-executable-profiling
+# Install all dependencies (for library, tests and benchmarks) with
+# profiling enabled.
+cabal-dev install \
+    --only-dependencies \
+    --enable-benchmarks \
+    --enable-tests \
+    --enable-library-profiling
 
-
-# It seems that 'cabal-dev install' don't work with --enable-benchmarks
-cabal-dev configure --enable-benchmarks \
-                    --enable-tests --enable-library-coverage \
-                    --enable-library-profiling --enable-executable-profiling
+# Configure and build.
+cabal-dev configure \
+    --enable-benchmarks \
+    --enable-tests \
+    --enable-library-coverage \
+    --enable-library-profiling
 cabal-dev build
 
-#cabal-dev test
+cabal-dev test
 #cabal-dev bench --benchmark-option="-obench.html"
 #cabal-dev haddock
