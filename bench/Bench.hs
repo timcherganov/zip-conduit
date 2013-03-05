@@ -8,10 +8,10 @@ import qualified Data.ByteString.Lazy as B
 import           Data.Word
 import           System.FilePath
 import           System.IO
+import           System.Directory
 
 import           Criterion.Config
 import           Criterion.Main
-import           Criterion.Monad
 import           System.IO.Temp
 import           System.Random
 
@@ -57,12 +57,12 @@ prepareBench dir names =
     b f = map (\name -> bench name $ f dir name) names
 
 
-
 -- | Creates source files for archiving and archives with those
 -- files. File name is the size of this file in bytes.
-prepareFiles :: FilePath      -- ^ the path to the directory for files
+prepareFiles :: MonadIO m
+             => FilePath      -- ^ the path to the directory for files
              -> [Int]         -- ^ sizes of files to create
-             -> Criterion ()
+             -> m ()
 prepareFiles dir sizes = liftIO $
     forM_ sizes $ \s -> do
         let path = dir </> show s
@@ -118,7 +118,7 @@ unZipConduit dir name = do
 unZipArchive :: FilePath -> FilePath -> IO ()
 unZipArchive dir name = do
     bytes <- B.readFile (dir </> name <.> "zip")
-    A.extractFilesFromArchive [] $ A.toArchive bytes
+    withCurrentDirectory dir . A.extractFilesFromArchive [] $ A.toArchive bytes
 
 
 unLibZip :: FilePath -> FilePath -> IO ()
@@ -126,3 +126,16 @@ unLibZip dir name = do
     bytes <- L.withArchive [] (dir </> name <.> "zip") $ L.fileContentsIx [] 0
     withFile (dir </> name) WriteMode $ \h ->
         hPutStr h bytes
+
+
+------------------------------------------------------------------------------
+-- Utils.
+
+-- | Runs action in the specified current directory.
+withCurrentDirectory :: FilePath -> IO a -> IO a
+withCurrentDirectory path action = withSystemTempDirectory path $ \dir -> do
+    current <- getCurrentDirectory
+    setCurrentDirectory dir
+    res <- action
+    setCurrentDirectory current
+    return res
