@@ -245,9 +245,15 @@ sinkFile zip f compression time = do
 
 ------------------------------------------------------------------------------
 -- High level functions
+
+-- | Appends files to the 'Zip'. The file paths are used verbatim as zip entry
+-- names, save for the application of 'dropDrive'.
 addFiles :: [FilePath] -> Archive ()
 addFiles = addFilesAs id
 
+-- | Appends files to the 'Zip' using a function to transform the file paths
+-- into zip entry names. Useful when dealing with absolute paths. 'dropDrive'
+-- is applied to the paths before the supplied function.
 addFilesAs :: (FilePath -> FilePath) -> [FilePath] -> Archive ()
 addFilesAs funPath fs = do
     zip <- get
@@ -257,6 +263,7 @@ addFilesAs funPath fs = do
         return zip'
     put zip'
 
+-- | Extracts files from the 'Zip' to a directory.
 extractFiles :: [FilePath] -> FilePath -> Archive ()
 extractFiles fs dir = do
     zip <- get
