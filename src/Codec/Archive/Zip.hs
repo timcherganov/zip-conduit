@@ -90,6 +90,7 @@ module Codec.Archive.Zip
     -- * High level functions
     , extractFiles
     , addFiles
+    , addFilesAs
 
     -- * Deprecated
     , fileNames
@@ -245,14 +246,16 @@ sinkFile zip f compression time = do
 ------------------------------------------------------------------------------
 -- High level functions
 addFiles :: [FilePath] -> Archive ()
-addFiles fs = do
+addFiles = addFilesAs id
+
+addFilesAs :: (FilePath -> FilePath) -> [FilePath] -> Archive ()
+addFilesAs funPath fs = do
     zip <- get
     zip' <- liftIO $ withFile (zipFilePath zip) ReadWriteMode $ \h -> do
-        zip' <- foldM (addFile h) zip fs
+        zip' <- foldM (addFile funPath h) zip fs
         writeFinish h zip'
         return zip'
     put zip'
-
 
 extractFiles :: [FilePath] -> FilePath -> Archive ()
 extractFiles fs dir = do
@@ -266,14 +269,14 @@ extractFiles fs dir = do
 -- Low level functions
 
 -- | Appends file to the 'Zip'.
-addFile :: Handle -> Zip -> FilePath -> IO Zip
-addFile h zip f = do
+addFile :: (FilePath -> FilePath) -> Handle -> Zip -> FilePath -> IO Zip
+addFile funPath h zip f = do
 #if MIN_VERSION_directory(1,2,0)
     m  <- getModificationTime f
 #else
     m  <- clockTimeToUTCTime <$> getModificationTime f
 #endif
-    fh <- appendLocalFileHeader h zip (dropDrive f) Deflate m
+    fh <- appendLocalFileHeader h zip (funPath $ dropDrive f) Deflate m
     dd <- runResourceT $ CB.sourceFile f $$ sinkData h Deflate
     writeDataDescriptorFields h dd offset
     return $ updateZip zip fh dd

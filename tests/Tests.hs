@@ -7,6 +7,7 @@ import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import           Data.List ((\\))
+import           Data.Maybe (fromMaybe)
 import           Data.Time
 import           System.Directory
 import           System.FilePath
@@ -33,7 +34,8 @@ tests =
                 [ testCase "conduit    " (assertConduit sinkEntry)
                 , testCase "conduit-un " (assertConduit sinkEntryUncompressed)
                 , testCase "conduit-dep" assertConduitDeprecated
-                , testCase "files      " assertFiles
+                , testCase "files      " (assertFiles Nothing)
+                , testCase "files-as   " (assertFiles $ Just ("contents" </>))
                 ]
     ]
 
@@ -56,15 +58,15 @@ assertConduit s =
                   ]
 
 
-assertFiles :: Assertion
-assertFiles =
+assertFiles :: Maybe (FilePath -> FilePath) -> Assertion
+assertFiles mFunPath =
     withSystemTempDirectory "zip-conduit" $ \dir -> do
         -- create files
         filePaths <- putFiles dir filesInfo
 
         -- archive and unarchive
         withArchive (dir </> archiveName) $ do
-            addFiles filePaths
+            addFilesAdjusted filePaths
             names <- entryNames
             extractFiles names dir
 
@@ -79,6 +81,8 @@ assertFiles =
                 , ("test2.txt", "some another test text")
                 , ("test3.txt", "one more")
                 ]
+    adjustPath = fromMaybe id mFunPath
+    addFilesAdjusted = maybe addFiles addFilesAs mFunPath
 
     putFiles :: FilePath -> [(FilePath, ByteString)] -> IO [FilePath]
     putFiles dir fileInfo =
@@ -90,7 +94,7 @@ assertFiles =
 
     getFiles :: FilePath -> IO [(FilePath, ByteString)]
     getFiles dir = do
-        let path = dir </> dropDrive dir
+        let path = dir </> (adjustPath $ dropDrive dir)
         dirContents <- getDirectoryContents path
         let resultFiles = map (path </>) $ filter (`notElem` [".", ".."]) dirContents
         forM resultFiles $ \file -> do
