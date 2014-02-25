@@ -90,6 +90,7 @@ module Codec.Archive.Zip
     -- * High level functions
     , extractFiles
     , addFiles
+    , addFilesAs
 
     -- * Deprecated
     , fileNames
@@ -244,16 +245,25 @@ sinkFile zip f compression time = do
 
 ------------------------------------------------------------------------------
 -- High level functions
+
+-- | Appends files to the 'Zip'. The file paths are used verbatim as zip entry
+-- names, save for the application of 'dropDrive'.
 addFiles :: [FilePath] -> Archive ()
-addFiles fs = do
+addFiles = addFilesAs id
+
+-- | Appends files to the 'Zip' using a function to transform the file paths
+-- into zip entry names. Useful when dealing with absolute paths. 'dropDrive'
+-- is applied to the paths before the supplied function.
+addFilesAs :: (FilePath -> FilePath) -> [FilePath] -> Archive ()
+addFilesAs funPath fs = do
     zip <- get
     zip' <- liftIO $ withFile (zipFilePath zip) ReadWriteMode $ \h -> do
-        zip' <- foldM (addFile h) zip fs
+        zip' <- foldM (addFile funPath h) zip fs
         writeFinish h zip'
         return zip'
     put zip'
 
-
+-- | Extracts files from the 'Zip' to a directory.
 extractFiles :: [FilePath] -> FilePath -> Archive ()
 extractFiles fs dir = do
     zip <- get
@@ -266,14 +276,14 @@ extractFiles fs dir = do
 -- Low level functions
 
 -- | Appends file to the 'Zip'.
-addFile :: Handle -> Zip -> FilePath -> IO Zip
-addFile h zip f = do
+addFile :: (FilePath -> FilePath) -> Handle -> Zip -> FilePath -> IO Zip
+addFile funPath h zip f = do
 #if MIN_VERSION_directory(1,2,0)
     m  <- getModificationTime f
 #else
     m  <- clockTimeToUTCTime <$> getModificationTime f
 #endif
-    fh <- appendLocalFileHeader h zip (dropDrive f) Deflate m
+    fh <- appendLocalFileHeader h zip (funPath $ dropDrive f) Deflate m
     dd <- runResourceT $ CB.sourceFile f $$ sinkData h Deflate
     writeDataDescriptorFields h dd offset
     return $ updateZip zip fh dd
