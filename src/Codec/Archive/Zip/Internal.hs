@@ -9,7 +9,7 @@ import           Data.Time
 import           Data.Word (Word16, Word32)
 import           System.IO hiding (readFile)
 
-import           Control.Monad.Error
+import           Control.Monad.Except
 import           Data.ByteString.UTF8 (fromString, toString)
 
 import           Codec.Archive.Zip.Util
