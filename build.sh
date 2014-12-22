@@ -2,20 +2,20 @@
 
 # Install all dependencies (for library, tests and benchmarks) with
 # profiling enabled.
-cabal-dev install \
+cabal install \
     --only-dependencies \
     --enable-benchmarks \
     --enable-tests \
     --enable-library-profiling
 
 # Configure and build.
-cabal-dev configure \
+cabal configure \
     --enable-benchmarks \
     --enable-tests \
     --enable-library-coverage \
     --enable-library-profiling
-cabal-dev build
+cabal build
 
-cabal-dev test
-#cabal-dev bench --benchmark-option="-obench.html"
-#cabal-dev haddock
+cabal test
+#cabal bench --benchmark-option="-obench.html"
+#cabal haddock
