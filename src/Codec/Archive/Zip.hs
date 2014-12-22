@@ -101,6 +101,7 @@ module Codec.Archive.Zip
 import           Prelude hiding (readFile, zip)
 import           Control.Applicative
 import           Control.Monad
+import           Control.Monad.Trans.Resource
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B
 import           Data.List (find)
@@ -116,7 +117,7 @@ import           Control.Monad.State
 import           Data.Conduit
 import qualified Data.Conduit.Binary as CB
 import qualified Data.Conduit.List as CL
-import qualified Data.Conduit.Util as CU
+import qualified Data.Conduit.Internal as CI
 import           Data.Conduit.Zlib
 
 import           Codec.Archive.Zip.Internal
@@ -324,8 +325,8 @@ sinkData :: MonadResource m
 sinkData h compression = do
     ((uncompressedSize, crc32), compressedSize) <-
         case compression of
-          NoCompression -> CU.zipSinks sizeCrc32Sink sizeDataSink
-          Deflate       -> CU.zipSinks sizeCrc32Sink compressSink
+          NoCompression -> CI.zipSinks sizeCrc32Sink sizeDataSink
+          Deflate       -> CI.zipSinks sizeCrc32Sink compressSink
     return DataDescriptor
                { ddCRC32            = crc32
                , ddCompressedSize   = fromIntegral compressedSize
@@ -336,10 +337,10 @@ sinkData h compression = do
     compressSink = compress 6 (WindowBits (-15)) =$ sizeDataSink
 
     sizeCrc32Sink :: MonadResource m => Sink ByteString m (Int, Word32)
-    sizeCrc32Sink =  CU.zipSinks sizeSink crc32Sink
+    sizeCrc32Sink =  CI.zipSinks sizeSink crc32Sink
 
     sizeDataSink :: MonadResource m => Sink ByteString m Int
-    sizeDataSink  = fst <$> CU.zipSinks sizeSink (CB.sinkHandle h)
+    sizeDataSink  = fst <$> CI.zipSinks sizeSink (CB.sinkHandle h)
 
 
 -- Writes data descriptor fields (crc-32, compressed size and

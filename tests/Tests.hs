@@ -4,6 +4,7 @@ module Main where
 
 import           Prelude hiding (zip)
 import           Control.Monad
+import           Control.Monad.Trans.Resource
 import           Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import           Data.List ((\\))
