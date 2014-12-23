@@ -1,28 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PackageImports #-}
 
 module Main where
 
-import           Prelude hiding (zip)
-import           Control.Monad
-import           Control.Monad.Trans.Resource
+import           Control.Monad (forM, forM_)
 import           Data.ByteString.Char8 (ByteString)
-import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Char8 as B (append, hGetContents, hPut)
 import           Data.List ((\\))
 import           Data.Maybe (fromMaybe)
-import           Data.Time
-import           System.Directory
-import           System.FilePath
-import           System.IO
+import           Data.Time (getCurrentTime)
+import           System.Directory (getDirectoryContents)
+import           System.FilePath ((</>), dropDrive, takeFileName)
+import           System.IO (IOMode(..), withFile)
 
-import           Control.Monad.State
-import           Data.Conduit
-import qualified Data.Conduit.List as CL
-import           System.IO.Temp
-import           Test.Framework
-import           Test.Framework.Providers.HUnit
-import           Test.HUnit hiding (Test, path)
+import           Control.Monad.Trans.Resource (runResourceT)
+import           Data.Conduit (Source, ($$))
+import qualified Data.Conduit.List as CL (fold, sourceList)
+import           System.IO.Temp (withSystemTempDirectory)
+import           Test.Framework (Test, defaultMain, testGroup)
+import           Test.Framework.Providers.HUnit (testCase)
+import           Test.HUnit (Assertion, assertEqual)
 
-import           Codec.Archive.Zip
+import           "zip-conduit" Codec.Archive.Zip
 
 
 main :: IO ()
@@ -141,7 +140,7 @@ assertConduitDeprecated =
 -- 'content'.
 archiveD :: FilePath -> FilePath -> ByteString -> IO ()
 archiveD archivePath fileName content = do
-    time <- liftIO getCurrentTime
+    time <- getCurrentTime
     withArchive archivePath $ do
         sink <- getSink fileName time
         runResourceT $ CL.sourceList [content] $$ sink

@@ -1,15 +1,15 @@
 module Codec.Archive.Zip.Internal where
 
 import           Prelude hiding (readFile)
-import           Control.Applicative hiding (many)
+import           Control.Applicative ((<$>))
+import           Control.Monad (unless)
 import           Data.ByteString (ByteString)
-import qualified Data.ByteString as B
-import           Data.Serialize hiding (get)
-import           Data.Time
+import qualified Data.ByteString as B (hGet, hPut, length, pack, empty)
+import           Data.Serialize (Get, Put, getByteString, getWord16le, getWord32le, putByteString, putWord16le, putWord32le, runPut, skip)
+import           Data.Time (UTCTime)
 import           Data.Word (Word16, Word32)
-import           System.IO hiding (readFile)
+import           System.IO (Handle, SeekMode(..), hFileSize, hSeek, hTell)
 
-import           Control.Monad.Except
 import           Data.ByteString.UTF8 (fromString, toString)
 
 import           Codec.Archive.Zip.Util

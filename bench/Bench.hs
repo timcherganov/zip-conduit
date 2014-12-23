@@ -2,18 +2,16 @@
 
 module Main where
 
-import           Control.Monad
-import           Control.Monad.IO.Class
-import qualified Data.ByteString.Lazy as B
-import           Data.Word
-import           System.FilePath
-import           System.IO
-import           System.Directory
+import           Control.Monad (forM_)
+import qualified Data.ByteString.Lazy as B (hPut, pack, readFile)
+import           Data.Word (Word8)
+import           System.FilePath ((</>), (<.>))
+import           System.IO (IOMode(..), hPutStr, withFile)
+import           System.Directory (getCurrentDirectory, setCurrentDirectory)
 
-import           Criterion.Config
-import           Criterion.Main
-import           System.IO.Temp
-import           System.Random
+import           Criterion.Main (Benchmark, bench, bgroup, defaultMain, nfIO)
+import           System.IO.Temp (withSystemTempDirectory, withTempDirectory)
+import           System.Random (getStdGen, randoms)
 
 import qualified Codec.Archive.LibZip as L
 import qualified "zip-archive" Codec.Archive.Zip as A
@@ -25,16 +23,9 @@ main :: IO ()
 main = do
     let sizes = [1024*1024, 10*1024*1024]    -- ^ sizes of files for benchmarking
 
-    withSystemTempDirectory "zip-conduit" $ \dir ->
-        defaultMainWith myConfig
-                        (prepareFiles dir sizes)
-                        (prepareBench dir $ map show sizes)
-
-
-myConfig :: Config
-myConfig = defaultConfig {
-             cfgPerformGC = ljust True  -- ^ always GC between runs
-           }
+    withSystemTempDirectory "zip-conduit" $ \dir -> do
+        prepareFiles dir sizes
+        defaultMain (prepareBench dir $ map show sizes)
 
 
 -- | Prepares benchmarks.
@@ -54,21 +45,19 @@ prepareBench dir names =
              ]
     ]
   where
-    b f = map (\name -> bench name $ f dir name) names
+    b f = map (\name -> bench name $ nfIO $ f dir name) names
 
 
 -- | Creates source files for archiving and archives with those
 -- files. File name is the size of this file in bytes.
-prepareFiles :: MonadIO m
-             => FilePath      -- ^ the path to the directory for files
-             -> [Int]         -- ^ sizes of files to create
-             -> m ()
-prepareFiles dir sizes = liftIO $
-    forM_ sizes $ \s -> do
-        let path = dir </> show s
+prepareFiles :: FilePath    -- ^ the path to the directory for files
+             -> [Int]       -- ^ sizes of files to create
+             -> IO ()
+prepareFiles dir sizes = forM_ sizes $ \s -> do
+    let path = dir </> show s
 
-        createFile path s
-        withArchive (path <.> "zip") $ addFiles [path]
+    createFile path s
+    withArchive (path <.> "zip") $ addFiles [path]
 
 
 -- | Creates a file of specified length with random content.

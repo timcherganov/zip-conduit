@@ -99,26 +99,26 @@ module Codec.Archive.Zip
     ) where
 
 import           Prelude hiding (readFile, zip)
-import           Control.Applicative
-import           Control.Monad
-import           Control.Monad.Trans.Resource
+import           Control.Applicative ((<$>))
+import           Control.Monad (foldM, forM_)
 import           Data.ByteString (ByteString)
-import qualified Data.ByteString as B
+import qualified Data.ByteString as B (empty)
 import           Data.List (find)
-import           Data.Maybe
-import           Data.Time
-import           Data.Word
-import           System.Directory
-import           System.FilePath
-import           System.IO hiding (readFile)
+import           Data.Maybe (fromMaybe)
+import           Data.Time (UTCTime, getCurrentTime)
+import           Data.Word (Word32)
+import           System.Directory (createDirectoryIfMissing, doesFileExist, getModificationTime)
+import           System.FilePath ((</>), dropDrive, takeDirectory)
+import           System.IO (Handle, IOMode(..), SeekMode(..), hClose, hSeek, hTell, openFile, withFile)
 
-import           Control.Monad.IO.Class
-import           Control.Monad.State
-import           Data.Conduit
-import qualified Data.Conduit.Binary as CB
-import qualified Data.Conduit.List as CL
-import qualified Data.Conduit.Internal as CI
-import           Data.Conduit.Zlib
+import           Control.Monad.IO.Class (liftIO)
+import           Control.Monad.State (StateT, evalStateT, get, gets, modify, put)
+import           Control.Monad.Trans.Resource (ResourceT, MonadResource, runResourceT)
+import           Data.Conduit (Sink, Source, ($$), ($=), (=$))
+import qualified Data.Conduit.Binary as CB (isolate, sinkFile, sinkHandle, sourceFile, sourceIOHandle)
+import qualified Data.Conduit.List as CL (map)
+import qualified Data.Conduit.Internal as CI (zipSinks)
+import           Data.Conduit.Zlib (WindowBits(..), compress, decompress)
 
 import           Codec.Archive.Zip.Internal
 import           Codec.Archive.Zip.Util
@@ -188,6 +188,7 @@ sourceEntry :: FilePath -> Sink ByteString (ResourceT Archive) a -> Archive a
 sourceEntry e sink = do
     zip <- get
     runResourceT $ sourceFile zip e $$ sink
+
 
 -- | Stream data from the specified source to an archive entry.
 sinkEntry :: FilePath -> Source (ResourceT Archive) ByteString -> Archive ()

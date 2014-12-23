@@ -1,18 +1,18 @@
 module Codec.Archive.Zip.Util where
 
-import           Control.Applicative hiding (many)
-import           Data.Bits
+import           Control.Applicative ((<$>))
+import           Data.Bits ((.&.), shiftR, shiftL)
 import           Data.ByteString (ByteString)
-import qualified Data.ByteString as B
-import           Data.Time
-import           Data.Time.Clock.POSIX
+import qualified Data.ByteString as B (length)
+import           Data.Time (UTCTime(..), TimeOfDay(..), fromGregorian, picosecondsToDiffTime, secondsToDiffTime, timeToTimeOfDay, toGregorian)
+import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Word (Word16, Word32)
-import           System.Time
+import           System.Time (ClockTime(..))
 
-import           Data.Conduit
-import qualified Data.Conduit.List as CL
-import           Data.Digest.CRC32
-import           Data.Serialize.Get
+import           Data.Conduit (Sink)
+import qualified Data.Conduit.List as CL (fold)
+import           Data.Digest.CRC32 (crc32Update)
+import           Data.Serialize.Get (Get, getWord32le, isEmpty, lookAhead, runGet, skip)
 
 
 ifM :: Monad m => m Bool -> m a -> m a -> m a
