@@ -1,7 +1,6 @@
 module Codec.Archive.Zip.Internal where
 
 import           Prelude hiding (readFile)
-import           Control.Applicative ((<$>))
 import           Control.Monad (unless)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B (hGet, hPut, length, pack, empty)

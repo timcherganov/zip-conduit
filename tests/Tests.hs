@@ -4,6 +4,7 @@
 module Main where
 
 import           Control.Monad (forM, forM_)
+import           Control.Monad.IO.Class (liftIO)
 import           Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B (append, hGetContents, hPut)
 import           Data.List ((\\))
@@ -13,8 +14,7 @@ import           System.Directory (getDirectoryContents)
 import           System.FilePath ((</>), dropDrive, takeFileName)
 import           System.IO (IOMode(..), withFile)
 
-import           Control.Monad.Trans.Resource (runResourceT)
-import           Data.Conduit (Source, ($$))
+import           Data.Conduit (runConduitRes, ConduitT, (.|))
 import qualified Data.Conduit.List as CL (fold, sourceList)
 import           System.IO.Temp (withSystemTempDirectory)
 import           Test.Framework (Test, defaultMain, testGroup)
@@ -41,7 +41,7 @@ tests =
 
 
 assertConduit :: Monad m
-              => (FilePath -> Source m ByteString -> Archive b) -> IO ()
+              => (FilePath -> ConduitT () ByteString m () -> Archive b) -> IO ()
 assertConduit s =
     withSystemTempDirectory "zip-conduit" $ \dir -> do
         let archivePath = dir </> archiveName
@@ -103,7 +103,7 @@ assertFiles mFunPath =
 
 
 archive :: Monad m
-        => (FilePath -> Source m ByteString -> Archive b)
+        => (FilePath -> ConduitT () ByteString m () -> Archive b)
         -> FilePath -> [(FilePath, ByteString)] -> IO ()
 archive s archivePath entriesInfo =
     withArchive archivePath $
@@ -143,7 +143,7 @@ archiveD archivePath fileName content = do
     time <- getCurrentTime
     withArchive archivePath $ do
         sink <- getSink fileName time
-        runResourceT $ CL.sourceList [content] $$ sink
+        liftIO . runConduitRes $ CL.sourceList [content] .| sink
 
 
 -- | Gets content from 'fileName' in archive at 'arcihvePath'.
@@ -151,4 +151,4 @@ unarchiveD :: FilePath -> FilePath -> IO ByteString
 unarchiveD archivePath fileName =
     withArchive archivePath $ do
         source <- getSource fileName
-        runResourceT $ source $$ CL.fold B.append ""
+        liftIO . runConduitRes $ source .| CL.fold B.append ""

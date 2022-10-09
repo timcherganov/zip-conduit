@@ -1,6 +1,5 @@
 module Codec.Archive.Zip.Util where
 
-import           Control.Applicative ((<$>))
 import           Data.Bits ((.&.), shiftR, shiftL)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as B (length)
@@ -9,7 +8,7 @@ import           Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import           Data.Word (Word16, Word32)
 import           System.Time (ClockTime(..))
 
-import           Data.Conduit (Sink)
+import           Data.Conduit (Void, ConduitT)
 import qualified Data.Conduit.List as CL (fold)
 import           Data.Digest.CRC32 (crc32Update)
 import           Data.Serialize.Get (Get, getWord32le, isEmpty, lookAhead, runGet, skip)
@@ -107,11 +106,11 @@ clockTimeToUTCTime (TOD seconds picoseconds) =
 
 ------------------------------------------------------------------------------
 -- Conduit utils.
-crc32Sink :: Monad m => Sink ByteString m Word32
+crc32Sink :: Monad m => ConduitT ByteString Void m Word32
 crc32Sink =
     CL.fold crc32Update 0
 
 
-sizeSink :: Monad m => Sink ByteString m Int
+sizeSink :: Monad m => ConduitT ByteString Void m Int
 sizeSink =
     CL.fold (\acc input -> B.length input + acc) 0
